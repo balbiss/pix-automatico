@@ -1,9 +1,9 @@
-version: '3.8'
+version: '3'
 
 services:
   bot-mlm:
+    image: bot-mlm:latest
     build: .
-    container_name: bot_telegram_mlm
     restart: always
     ports:
       - "3000:3000"

@@ -17,3 +17,12 @@ BEGIN
     WHERE telegram_id = user_id;
 END;
 $$ LANGUAGE plpgsql;
+-- 3. Criar função para decrementar saldo (RPC)
+CREATE OR REPLACE FUNCTION decrement_balance(user_id TEXT, amount DECIMAL)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE usuarios
+    SET saldo = saldo - amount
+    WHERE telegram_id = user_id;
+END;
+$$ LANGUAGE plpgsql;

@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  bot-pix:
+    build: .
+    container_name: pix-automatico-bot
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - /app/node_modules

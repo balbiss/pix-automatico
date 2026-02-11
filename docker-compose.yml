@@ -3,7 +3,6 @@ version: '3'
 services:
   bot-mlm:
     image: bot-mlm:latest
-    build: .
     restart: always
     ports:
       - "3000:3000"

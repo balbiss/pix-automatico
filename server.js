@@ -50,18 +50,23 @@ async function getSyncPayToken() {
 async function createSyncPayCharge(telegramId, amount) {
   const token = await getSyncPayToken();
   try {
-    const response = await axios.post(`${SYNCPAY_BASE_URL}/api/partner/v1/cash-in`, {
-      external_id: telegramId,
+    const payload = {
+      external_id: `${telegramId}_${Date.now()}`,
       amount: parseFloat(amount),
       description: `Compra E-book - User ${telegramId}`,
       webhook_url: WEBHOOK_URL,
       client: {
         name: `Usuario ${telegramId}`,
-        cpf: "00000000000",
-        email: "bot@indicacao.com",
-        phone: telegramId
+        document: "00000000000",
+        email: "bot@indicacao.com"
       }
-    }, { headers: { Authorization: `Bearer ${token}` } });
+    };
+
+    log('DEBUG', `Payload Enviado: ${JSON.stringify(payload)}`);
+
+    const response = await axios.post(`${SYNCPAY_BASE_URL}/api/partner/v1/cash-in`, payload, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
     return response.data;
   } catch (error) {
     const errorData = error.response?.data ? JSON.stringify(error.response.data) : error.message;

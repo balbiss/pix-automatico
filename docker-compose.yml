@@ -1,8 +1,8 @@
 version: '3.3'
 
 services:
-  bot-final:
-    image: bot-indicacao:v1.260
+  bot-professional:
+    image: bot-indicacao:v2.000
     ports:
       - target: 3000
         published: 3001

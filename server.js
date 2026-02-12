@@ -4,7 +4,7 @@ import { Telegraf } from 'telegraf';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 
-const VERSION = "V3.000";
+const VERSION = "V3.001";
 const app = express();
 app.use(express.json());
 
@@ -230,7 +230,7 @@ bot.command('admin', async (ctx) => {
 \`/setpreco 19.90\`
 \`/setcomissao1 6.00\`
 \`/setcomissao2 3.00\`
-\`/documento\` (Envie o PDF após este comando)`;
+\`/documento\` \\(Envie o PDF após este comando\\)`;
 
   ctx.replyWithMarkdownV2(ADMIN_MSG);
 });

@@ -57,7 +57,7 @@ async function createSyncPayCharge(telegramId, amount) {
       webhook_url: WEBHOOK_URL,
       client: {
         name: `Usuario ${telegramId}`,
-        document: "00000000000",
+        cpf: "00000000000",
         email: "bot@indicacao.com"
       }
     };

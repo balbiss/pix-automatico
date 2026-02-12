@@ -4,7 +4,7 @@ import { Telegraf } from 'telegraf';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 
-const VERSION = "V1.256";
+const VERSION = "V1.257";
 const app = express();
 app.use(express.json());
 
@@ -31,7 +31,7 @@ const {
 const supabase = createClient(SUPABASE_URL || 'http://localhost', SUPABASE_SERVICE_ROLE_KEY || 'key');
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN || '000:dummy');
 
-log('SYSTEM', 'Iniciando Reconstrução V1.256...');
+log('SYSTEM', 'Iniciando Reconstrução V1.257...');
 
 // --- LÓGICA SYNCPAY ---
 async function getSyncPayToken() {

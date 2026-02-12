@@ -4,7 +4,7 @@ import { Telegraf } from 'telegraf';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 
-const VERSION = "V1.254";
+const VERSION = "V1.255";
 const app = express();
 app.use(express.json());
 
@@ -13,44 +13,13 @@ function log(tag, message) {
   console.log(`[BOT LOG] [${VERSION}] ${time} - [${tag}] ${message}`);
 }
 
-// Configurações
-const {
-  SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY,
-  TELEGRAM_BOT_TOKEN,
-  SYNCPAY_CLIENT_ID,
-  SYNCPAY_CLIENT_SECRET,
-  SYNCPAY_BASE_URL,
-  WEBHOOK_URL,
-  PRODUCT_PRICE = 19.90,
-  COMMISSION_L1 = 6.00,
-  COMMISSION_L2 = 3.00
-} = process.env;
-
-// Inicialização Global
-const supabase = createClient(SUPABASE_URL || 'http://localhost', SUPABASE_SERVICE_ROLE_KEY || 'key');
-const bot = new Telegraf(TELEGRAM_BOT_TOKEN || '000:dummy');
-
-log('SYSTEM', 'Iniciando Reconstrução V1.254...');
-
-// --- LÓGICA SYNCPAY ---
-async function getSyncPayToken() {
-  try {
-    const response = await axios.post(`${SYNCPAY_BASE_URL}/api/partner/v1/auth-token`, {
-      client_id: SYNCPAY_CLIENT_ID,
-      client_secret: SYNCPAY_CLIENT_SECRET
-    });
-    return response.data.access_token;
-  } catch (error) {
-    log('ERROR', `Erro Token SyncPay: ${error.message}`);
-    throw error;
-  }
-}
+// ... (mantendo o resto igual até a função de cobrança)
 
 async function createSyncPayCharge(telegramId, amount) {
   const token = await getSyncPayToken();
   try {
     const response = await axios.post(`${SYNCPAY_BASE_URL}/api/partner/v1/cash-in`, {
+      external_id: telegramId,
       amount: parseFloat(amount),
       description: `Compra E-book - User ${telegramId}`,
       webhook_url: WEBHOOK_URL,
@@ -63,7 +32,8 @@ async function createSyncPayCharge(telegramId, amount) {
     }, { headers: { Authorization: `Bearer ${token}` } });
     return response.data;
   } catch (error) {
-    log('ERROR', `Erro Cobrança: ${error.message}`);
+    const errorData = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+    log('ERROR', `Erro Cobrança (500): ${errorData}`);
     throw error;
   }
 }

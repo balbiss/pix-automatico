@@ -411,9 +411,16 @@ bot.action('back_to_start', (ctx) => {
 // --- INICIALIZAÇÃO ---
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-  bot.launch();
+app.listen(PORT, '0.0.0.0', async () => {
+  log('SYSTEM', `Servidor Express escutando na porta ${PORT}`);
+  try {
+    log('SYSTEM', 'Tentando conectar ao Telegram...');
+    await bot.launch();
+    log('SYSTEM', 'Bot online e aguardando comandos!');
+  } catch (err) {
+    log('ERROR', `Falha ao iniciar Telegram: ${err.message}`);
+    // Não encerramos o processo para o container não entrar em loop de boot no Swarm
+  }
 });
 
 process.once('SIGINT', () => bot.stop('SIGINT'));

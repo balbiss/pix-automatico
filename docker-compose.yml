@@ -2,12 +2,15 @@ version: '3.3'
 
 services:
   bot:
-    image: pix-bot:latest
+    image: bot-mlm:latest
     ports:
       - target: 3000
-        published: 3001
+        published: 3005
         mode: host
     deploy:
       replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
       restart_policy:
         condition: on-failure

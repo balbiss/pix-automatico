@@ -151,7 +151,7 @@ bot.start(async (ctx) => {
 const getStartMenu = () => ({
   text: `🚀 *BEM\\-VINDO AO IMPÉRIO DIGITAL\\!*
 
-💰 *E-book:* R$ ${esc(config.PRODUCT_PRICE)}
+💰 *E\\-book:* R$ ${esc(config.PRODUCT_PRICE)}
 💎 *Ganhos:* Comissões em 2 níveis\\!
 
 Escolha uma opção:`,

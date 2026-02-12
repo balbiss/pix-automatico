@@ -4,7 +4,7 @@ import { Telegraf } from 'telegraf';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 
-const VERSION = "V2.000";
+const VERSION = "V2.001";
 const app = express();
 app.use(express.json());
 
@@ -12,6 +12,10 @@ function log(tag, message) {
   const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: 'numeric', minute: '2-digit', second: '2-digit' });
   console.log(`[BOT LOG] [${VERSION}] ${time} - [${tag}] ${message}`);
 }
+
+const escapeMarkdown = (text) => {
+  return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
+};
 
 // Configurações
 const {
@@ -142,12 +146,12 @@ bot.start(async (ctx) => {
       await supabase.from('usuarios').insert([{ telegram_id: telegramId, padrinho_id: padrinhoId, avo_id: avoId, saldo: 0, is_active: false }]);
     }
 
-    const WELCOME_MSG = `🚀 *BEM-VINDO AO IMPÉRIO DIGITAL!*
+    const WELCOME_MSG = `🚀 *BEM\\-VINDO AO IMPÉRIO DIGITAL\\!*
 
-Você acaba de dar o primeiro passo para sua liberdade financeira. Explore nosso conteúdo exclusivo e comece a lucrar agora mesmo.
+Você acaba de dar o primeiro passo para sua liberdade financeira\\. Explore nosso conteúdo exclusivo e comece a lucrar agora mesmo\\.
 
-💰 *Oferta Especial:* E-book Premium por apenas *R$ ${PRODUCT_PRICE}*
-💎 *Sistema de Afiliados:* Ganhe comissões em até 2 níveis!
+💰 *Oferta Especial:* E\\-book Premium por apenas *R$ ${PRODUCT_PRICE}*
+💎 *Sistema de Afiliados:* Ganhe comissões em até 2 níveis\\!
 
 Escolha uma opção abaixo para começar:`;
 
@@ -169,7 +173,7 @@ bot.action('buy_pix', async (ctx) => {
     const pixCode = charge.pix_code || charge.pix_copy_and_paste || charge.qrcode;
 
     if (pixCode) {
-      const msg = `⚡ *QUASE LÁ!*
+      const msg = `⚡ *QUASE LÁ\\!*
       
 Siga os passos para liberar seu acesso:
 1\\. Copie o código abaixo
@@ -179,7 +183,7 @@ Siga os passos para liberar seu acesso:
 
 \`${pixCode}\`
 
-_A liberação do E-book ocorre automaticamente após a confirmação._`;
+_A liberação do E\\-book ocorre automaticamente após a confirmação\\._`;
 
       ctx.replyWithMarkdownV2(msg);
     } else {
@@ -199,14 +203,14 @@ bot.action('profile', async (ctx) => {
 
     const DASHBOARD = `👤 *SEU PAINEL DE CONTROLE*
 
-💰 *Saldo Disponível:* R$ ${user.saldo.toFixed(2)}
+💰 *Saldo Disponível:* R$ ${user.saldo.toFixed(2).replace('.', '\\.')}
 👥 *Rede Nível 1:* ${n1 || 0} consultores
 👥 *Rede Nível 2:* ${n2 || 0} consultores
 
 🔗 *SEU LINK DE INDICAÇÃO:*
 \`https://t.me/${me.username}?start=${tid}\`
 
-_Indique amigos e ganhe R$ ${COMMISSION_L1.toFixed(2)} por cada venda direta!_`;
+_Indique amigos e ganhe R$ ${COMMISSION_L1.toFixed(2).replace('.', '\\.')} por cada venda direta\\!_`;
 
     ctx.replyWithMarkdownV2(DASHBOARD, {
       reply_markup: {
@@ -239,14 +243,14 @@ bot.command('sacar', async (ctx) => {
     const res = await createSyncPayCashOut(user.saldo - 4.90, cpf, tid);
     if (res.reference_id) {
       await supabase.rpc('decrement_balance', { user_id: tid, amount: user.saldo });
-      ctx.reply("✅ *SAQUE SOLICITADO!* Seu saldo será processado em breve.");
+      ctx.replyWithMarkdownV2("✅ *SAQUE SOLICITADO\\!* Seu saldo será processado em breve\\.");
     }
   } catch (e) { ctx.reply("❌ Erro ao processar saque. Verifique se o CPF é o mesmo do cadastro."); }
 });
 
 bot.action('back_to_start', (ctx) => {
   ctx.deleteMessage();
-  ctx.replyWithMarkdownV2(`💎 *E-BOOK PREMIUM* - R$ ${PRODUCT_PRICE}\n\nDeseja realizar sua compra agora?`, {
+  ctx.replyWithMarkdownV2(`💎 *E\\-BOOK PREMIUM* \\- R$ ${PRODUCT_PRICE.replace(/\./g, '\\.')}\n\nDeseja realizar sua compra agora?`, {
     reply_markup: {
       inline_keyboard: [
         [{ text: "💳 PAGAR AGORA", callback_data: "buy_pix" }],

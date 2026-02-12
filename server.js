@@ -58,12 +58,6 @@ try {
   log('ERROR', `Falha na inicialização: ${err.message}`);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
-
-log('SYSTEM', 'Bot MLM Inicializado');
-log('DATABASE', 'Conexão com Supabase configurada');
-
 // --- LÓGICA SYNCPAY ---
 
 async function getSyncPayToken() {

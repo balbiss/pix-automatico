@@ -7,6 +7,17 @@ services:
       - target: 3000
         published: 3001
         mode: host
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - SYNCPAY_CLIENT_ID=${SYNCPAY_CLIENT_ID}
+      - SYNCPAY_CLIENT_SECRET=${SYNCPAY_CLIENT_SECRET}
+      - SYNCPAY_BASE_URL=${SYNCPAY_BASE_URL}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - PRODUCT_PRICE=${PRODUCT_PRICE}
+      - COMMISSION_L1=${COMMISSION_L1}
+      - COMMISSION_L2=${COMMISSION_L2}
     deploy:
       replicas: 1
       restart_policy:

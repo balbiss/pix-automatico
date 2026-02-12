@@ -3,12 +3,10 @@ version: '3.3'
 services:
   bot:
     image: pix-bot:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: always
     ports:
-      - "3000:3000"
+      - target: 3000
+        published: 3001
+        mode: host
     deploy:
       replicas: 1
       restart_policy:

@@ -51,14 +51,14 @@ async function createSyncPayCharge(telegramId, amount) {
   const token = await getSyncPayToken();
   try {
     const payload = {
-      external_id: `${telegramId}_${Date.now()}`,
+      external_id: `TX_${telegramId}_${Date.now()}`,
       amount: parseFloat(amount),
-      description: `Compra E-book - User ${telegramId}`,
+      description: `Pedido ${telegramId}`,
       webhook_url: WEBHOOK_URL,
       client: {
-        name: `Usuario ${telegramId}`,
-        cpf: "00000000000",
-        email: "bot@indicacao.com"
+        name: "Consumidor Final",
+        cpf: "12345678909",
+        email: "pagamento@botindicacao.com"
       }
     };
 

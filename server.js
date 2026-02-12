@@ -21,8 +21,24 @@ const {
   COMMISSION_L2
 } = process.env;
 
+// Validação de Variáveis de Ambiente
+const requiredEnv = [
+  'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'TELEGRAM_BOT_TOKEN',
+  'SYNCPAY_CLIENT_ID', 'SYNCPAY_CLIENT_SECRET', 'SYNCPAY_BASE_URL'
+];
+
+requiredEnv.forEach(env => {
+  if (!process.env[env]) {
+    console.error(`ERRO CRÍTICO: Variável de ambiente ${env} não definida!`);
+    process.exit(1);
+  }
+});
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
+
+console.log('--- Iniciando Bot MLM ---');
+console.log('Supabase e Telegram inicializados.');
 
 // --- LÓGICA SYNCPAY ---
 

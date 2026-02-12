@@ -21,6 +21,13 @@ const {
   COMMISSION_L2
 } = process.env;
 
+const VERSION = "v1.191";
+
+function log(tag, message) {
+  const time = new Date().toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  console.log(`[BOT LOG] [${VERSION}] ${time} - [${tag}] ${message}`);
+}
+
 // Validação de Variáveis de Ambiente
 const requiredEnv = [
   'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'TELEGRAM_BOT_TOKEN',
@@ -29,7 +36,7 @@ const requiredEnv = [
 
 requiredEnv.forEach(env => {
   if (!process.env[env]) {
-    console.error(`ERRO CRÍTICO: Variável de ambiente ${env} não definida!`);
+    log('ERROR', `Variável de ambiente ${env} não definida!`);
     process.exit(1);
   }
 });
@@ -37,8 +44,8 @@ requiredEnv.forEach(env => {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 
-console.log('--- Iniciando Bot MLM ---');
-console.log('Supabase e Telegram inicializados.');
+log('SYSTEM', 'Bot MLM Inicializado');
+log('DATABASE', 'Conexão com Supabase configurada');
 
 // --- LÓGICA SYNCPAY ---
 

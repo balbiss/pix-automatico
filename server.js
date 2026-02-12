@@ -4,18 +4,16 @@ import { Telegraf } from 'telegraf';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 
+const VERSION = "V1.254";
 const app = express();
 app.use(express.json());
-
-// Configurações
-const VERSION = "V1.254";
 
 function log(tag, message) {
   const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: 'numeric', minute: '2-digit', second: '2-digit' });
   console.log(`[BOT LOG] [${VERSION}] ${time} - [${tag}] ${message}`);
 }
 
-// Configurações com Validação Amigável (Não mata o processo)
+// Configurações
 const {
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
@@ -29,37 +27,13 @@ const {
   COMMISSION_L2 = 3.00
 } = process.env;
 
-const requiredEnv = {
-  SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY,
-  TELEGRAM_BOT_TOKEN,
-  SYNCPAY_CLIENT_ID,
-  SYNCPAY_CLIENT_SECRET
-};
+// Inicialização Global
+const supabase = createClient(SUPABASE_URL || 'http://localhost', SUPABASE_SERVICE_ROLE_KEY || 'key');
+const bot = new Telegraf(TELEGRAM_BOT_TOKEN || '000:dummy');
 
-Object.entries(requiredEnv).forEach(([key, value]) => {
-  if (!value) {
-    log('ERROR', `Atenção: Variável ${key} não configurada nas Environment Variables!`);
-  }
-});
-
-let supabase, bot;
-
-try {
-  if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
-    supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    log('DATABASE', 'Conexão configurada');
-  }
-  if (TELEGRAM_BOT_TOKEN) {
-    bot = new Telegraf(TELEGRAM_BOT_TOKEN);
-    log('SYSTEM', 'Telegram configurado');
-  }
-} catch (err) {
-  log('ERROR', `Falha na inicialização: ${err.message}`);
-}
+log('SYSTEM', 'Iniciando Reconstrução V1.254...');
 
 // --- LÓGICA SYNCPAY ---
-
 async function getSyncPayToken() {
   try {
     const response = await axios.post(`${SYNCPAY_BASE_URL}/api/partner/v1/auth-token`, {
@@ -68,7 +42,7 @@ async function getSyncPayToken() {
     });
     return response.data.access_token;
   } catch (error) {
-    console.error('Erro ao obter token SyncPay:', error.response?.data || error.message);
+    log('ERROR', `Erro Token SyncPay: ${error.message}`);
     throw error;
   }
 }
@@ -86,21 +60,13 @@ async function createSyncPayCharge(telegramId, amount) {
         email: "bot@indicacao.com",
         phone: telegramId
       }
-    }, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      }
-    });
-
+    }, { headers: { Authorization: `Bearer ${token}` } });
     return response.data;
   } catch (error) {
-    console.error('Erro ao criar cobrança SyncPay:', error.response?.data || error.message);
+    log('ERROR', `Erro Cobrança: ${error.message}`);
     throw error;
   }
 }
-
 
 async function createSyncPayCashOut(amount, pixKey, telegramId) {
   const token = await getSyncPayToken();
@@ -108,329 +74,123 @@ async function createSyncPayCashOut(amount, pixKey, telegramId) {
     const response = await axios.post(`${SYNCPAY_BASE_URL}/api/partner/v1/cash-out`, {
       amount: parseFloat(amount),
       description: `Saque - User ${telegramId}`,
-      pix_key_type: "CPF", // Assumindo CPF por padrão
+      pix_key_type: "CPF",
       pix_key: pixKey,
-      document: {
-        type: "cpf",
-        number: pixKey
-      }
-    }, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      }
-    });
+      document: { type: "cpf", number: pixKey }
+    }, { headers: { Authorization: `Bearer ${token}` } });
     return response.data;
   } catch (error) {
-    console.error('Erro ao processar saque SyncPay:', error.response?.data || error.message);
+    log('ERROR', `Erro Saque: ${error.message}`);
     throw error;
   }
 }
 
-// --- WEBHOOK SYNCPAY ---
-
-
+// --- WEBHOOK ---
 app.post('/webhook/syncpay', async (req, res) => {
-  console.log('Webhook recebido:', req.body);
+  log('WEBHOOK', `Recebido: ${JSON.stringify(req.body)}`);
   const { external_id, status } = req.body;
-
-  // SyncPayments pode enviar 'PAID', 'completed' ou 'success' dependendo da versão
-  if (status === 'PAID' || status === 'completed' || status === 'success') {
+  if (['PAID', 'completed', 'success'].includes(status)) {
     try {
       const telegramId = external_id;
+      const { data: user } = await supabase.from('usuarios').select('*').eq('telegram_id', telegramId).single();
+      if (!user || user.is_active) return res.send('OK');
 
-      // 1. Buscar usuário para verificar status e obter IDs de indicação
-      const { data: user, error: userError } = await supabase
-        .from('usuarios')
-        .select('*')
-        .eq('telegram_id', telegramId)
-        .single();
+      await supabase.from('usuarios').update({ is_active: true }).eq('telegram_id', telegramId);
 
-      if (userError || !user) {
-        console.error('Usuário não encontrado no webhook:', telegramId);
-        return res.status(404).send('Usuário não encontrado');
-      }
-
-      if (user.is_active) {
-        console.log('Usuário já está ativo:', telegramId);
-        return res.send('OK');
-      }
-
-      // 2. Ativar usuário
-      const { error: updateError } = await supabase
-        .from('usuarios')
-        .update({ is_active: true })
-        .eq('telegram_id', telegramId);
-
-      if (updateError) throw updateError;
-
-      // 3. Distribuir comissões (Sistema de 2 níveis)
-      // Nível 1: Padrinho (R$ 6,00)
       if (user.padrinho_id) {
-        console.log(`Distribuindo R$ ${COMMISSION_L1} para o Padrinho: ${user.padrinho_id}`);
-        await supabase.rpc('increment_balance', {
-          user_id: user.padrinho_id,
-          amount: parseFloat(COMMISSION_L1)
-        });
-
-        // Nível 2: Avô (R$ 3,00)
+        await supabase.rpc('increment_balance', { user_id: user.padrinho_id, amount: parseFloat(COMMISSION_L1) });
         if (user.avo_id) {
-          console.log(`Distribuindo R$ ${COMMISSION_L2} para o Avô: ${user.avo_id}`);
-          await supabase.rpc('increment_balance', {
-            user_id: user.avo_id,
-            amount: parseFloat(COMMISSION_L2)
-          });
+          await supabase.rpc('increment_balance', { user_id: user.avo_id, amount: parseFloat(COMMISSION_L2) });
         }
       }
 
-      // 4. Entrega Automática do E-book
-      await bot.telegram.sendMessage(telegramId, "✅ Seu pagamento foi confirmado com sucesso!");
-      await bot.telegram.sendMessage(telegramId, "Aqui está o seu E-book exclusivo. Aproveite a leitura! 📚");
-
-      try {
-        await bot.telegram.sendDocument(telegramId, { source: './ebook.pdf' });
-      } catch (docError) {
-        console.error('Erro ao enviar o arquivo PDF:', docError.message);
-        await bot.telegram.sendMessage(telegramId, "Houve um problema ao enviar o arquivo automaticamente. Por favor, entre em contato com o suporte.");
-      }
-
+      await bot.telegram.sendMessage(telegramId, "✅ Pagamento confirmado! Aqui está seu E-book:");
+      await bot.telegram.sendDocument(telegramId, { source: './ebook.pdf' }).catch(() => log('ERROR', 'Falha ao enviar PDF'));
       return res.send('OK');
-    } catch (error) {
-      console.error('Erro ao processar webhook:', error);
-      return res.status(500).send('Erro interno');
+    } catch (err) {
+      log('ERROR', `Erro Webhook: ${err.message}`);
     }
   }
-
-  res.send('Aguardando pagamento');
+  res.send('Aguardando');
 });
 
-
-// --- LÓGICA DO BOT ---
-
+// --- COMANDOS BOT ---
 bot.start(async (ctx) => {
   const telegramId = ctx.from.id.toString();
-  const startParam = ctx.startPayload; // ID do padrinho se houver
-
+  const startParam = ctx.startPayload;
+  log('BOT', `Start do User ${telegramId}`);
   try {
-    // Verificar se usuário já existe
-    const { data: existingUser } = await supabase
-      .from('usuarios')
-      .select('*')
-      .eq('telegram_id', telegramId)
-      .single();
-
+    const { data: existingUser } = await supabase.from('usuarios').select('*').eq('telegram_id', telegramId).single();
     if (!existingUser) {
-      let padrinhoId = null;
-      let avoId = null;
-
+      let padrinhoId = null, avoId = null;
       if (startParam && startParam !== telegramId) {
-        // Buscar padrinho para pegar o avô dele
-        const { data: padrinho } = await supabase
-          .from('usuarios')
-          .select('telegram_id, padrinho_id')
-          .eq('telegram_id', startParam)
-          .single();
-
-        if (padrinho) {
-          padrinhoId = padrinho.telegram_id;
-          avoId = padrinho.padrinho_id;
-        }
+        const { data: padrinho } = await supabase.from('usuarios').select('telegram_id, padrinho_id').eq('telegram_id', startParam).single();
+        if (padrinho) { padrinhoId = padrinho.telegram_id; avoId = padrinho.padrinho_id; }
       }
-
-      await supabase.from('usuarios').insert([{
-        telegram_id: telegramId,
-        padrinho_id: padrinhoId,
-        avo_id: avoId,
-        saldo: 0,
-        is_active: false
-      }]);
+      await supabase.from('usuarios').insert([{ telegram_id: telegramId, padrinho_id: padrinhoId, avo_id: avoId, saldo: 0, is_active: false }]);
     }
-
-    ctx.reply(`Bem-vindo! Adquira agora o nosso E-book exclusivo por apenas R$ ${PRODUCT_PRICE}.\n\nPara comprar, use o botão abaixo:`, {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "Pagar com PIX", callback_data: "buy_pix" }],
-          [{ text: "Meu Perfil / Indicar", callback_data: "profile" }]
-        ]
-      }
+    ctx.reply(`Bem-vindo! E-book exclusivo por R$ ${PRODUCT_PRICE}.`, {
+      reply_markup: { inline_keyboard: [[{ text: "Pagar com PIX", callback_data: "buy_pix" }], [{ text: "Meu Perfil / Indicar", callback_data: "profile" }]] }
     });
-  } catch (error) {
-    console.error('Erro no /start:', error);
-  }
+  } catch (e) { log('ERROR', `Erro /start: ${e.message}`); }
 });
 
 bot.action('buy_pix', async (ctx) => {
-  const telegramId = ctx.from.id.toString();
-  await ctx.reply("Gerando seu PIX, aguarde...");
-
   try {
-    const charge = await createSyncPayCharge(telegramId, PRODUCT_PRICE);
-    // Ajustado para 'pix_code' conforme a documentação do Apidog
+    const charge = await createSyncPayCharge(ctx.from.id.toString(), PRODUCT_PRICE);
     const pixCode = charge.pix_code || charge.pix_copy_and_paste || charge.qrcode;
-
-    if (pixCode) {
-      await ctx.reply(`Utilize o código Pix abaixo para pagar:\n\n\`${pixCode}\``, { parse_mode: 'Markdown' });
-    } else {
-      throw new Error('Código Pix não gerado');
-    }
-  } catch (error) {
-
-    await ctx.reply("Desculpe, houve um erro ao gerar o pagamento. Tente novamente mais tarde.");
-  }
-});
-
-bot.command('carteira', async (ctx) => {
-  return bot.handleContext(ctx.update, 'profile');
+    if (pixCode) ctx.reply(`Copia e Cola Pix:\n\n\`${pixCode}\``, { parse_mode: 'Markdown' });
+  } catch (e) { ctx.reply("Erro ao gerar Pix."); }
 });
 
 bot.action('profile', async (ctx) => {
-  const telegramId = ctx.from.id.toString();
+  const tid = ctx.from.id.toString();
   try {
-    // 1. Buscar dados do usuário
-    const { data: user } = await supabase
-      .from('usuarios')
-      .select('*')
-      .eq('telegram_id', telegramId)
-      .single();
-
-    // 2. Contar indicados Nível 1
-    const { count: level1Count } = await supabase
-      .from('usuarios')
-      .select('*', { count: 'exact', head: true })
-      .eq('padrinho_id', telegramId);
-
-    // 3. Contar indicados Nível 2
-    const { count: level2Count } = await supabase
-      .from('usuarios')
-      .select('*', { count: 'exact', head: true })
-      .eq('avo_id', telegramId);
-
-    const botInfo = await bot.telegram.getMe();
-    const link = `https://t.me/${botInfo.username}?start=${telegramId}`;
-
-    ctx.reply(`📊 Seu Perfil:\n\n` +
-      `Status: ${user.is_active ? '✅ Ativo' : '❌ Inativo'}\n` +
-      `Saldo: R$ ${user.saldo.toFixed(2)}\n\n` +
-      `👥 Sua Rede:\n` +
-      `Indicados Diretos (N1): ${level1Count || 0}\n` +
-      `Indicados Indiretos (N2): ${level2Count || 0}\n\n` +
-      `🔗 Seu Link de Indicação:\n${link}`, {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "💰 Solicitar Saque", callback_data: "withdraw" }],
-          [{ text: "⬅️ Voltar", callback_data: "back_to_start" }]
-        ]
-      }
+    const { data: user } = await supabase.from('usuarios').select('*').eq('telegram_id', tid).single();
+    const { count: n1 } = await supabase.from('usuarios').select('*', { count: 'exact', head: true }).eq('padrinho_id', tid);
+    const { count: n2 } = await supabase.from('usuarios').select('*', { count: 'exact', head: true }).eq('avo_id', tid);
+    const me = await bot.telegram.getMe();
+    ctx.reply(`Sua Conta:\nSaldo: R$ ${user.saldo.toFixed(2)}\nN1: ${n1 || 0} | N2: ${n2 || 0}\n\nLink:\nhttps://t.me/${me.username}?start=${tid}`, {
+      reply_markup: { inline_keyboard: [[{ text: "💰 Saque", callback_data: "withdraw" }], [{ text: "⬅️ Voltar", callback_data: "back_to_start" }]] }
     });
-  } catch (error) {
-    console.error('Erro no perfil:', error);
-    ctx.reply("Erro ao carregar perfil.");
-  }
+  } catch (e) { log('ERROR', 'Erro Perfil'); }
 });
 
-bot.action('withdraw', async (ctx) => {
-  const telegramId = ctx.from.id.toString();
-  try {
-    const { data: user } = await supabase
-      .from('usuarios')
-      .select('saldo')
-      .eq('telegram_id', telegramId)
-      .single();
-
-    if (user.saldo < 50) {
-      return ctx.reply("❌ Saldo insuficiente. O valor mínimo para saque é R$ 50,00.");
-    }
-
-    ctx.reply("💰 Para realizar o saque, use o comando:\n\n`/sacar SEU_CPF` (apenas números)", { parse_mode: 'Markdown' });
-  } catch (error) {
-    ctx.reply("Erro ao verificar saldo.");
-  }
-});
+bot.action('withdraw', (ctx) => ctx.reply("Use `/sacar SEU_CPF` para retirar seu saldo."));
 
 bot.command('sacar', async (ctx) => {
-  const telegramId = ctx.from.id.toString();
-  const text = ctx.message.text.split(' ');
-
-  if (text.length < 2) {
-    return ctx.reply("❌ Por favor, informe seu CPF. Exemplo: `/sacar 12345678901`", { parse_mode: 'Markdown' });
-  }
-
-  const pixKey = text[1].replace(/\D/g, '');
-  if (pixKey.length !== 11) {
-    return ctx.reply("❌ CPF inválido. Use 11 dígitos numéricos.");
-  }
-
+  const tid = ctx.from.id.toString();
+  const cpf = ctx.message.text.split(' ')[1]?.replace(/\D/g, '');
+  if (!cpf || cpf.length !== 11) return ctx.reply("Informe o CPF: `/sacar 12345678901`", { parse_mode: 'Markdown' });
   try {
-    // 1. Verificar saldo novamente
-    const { data: user } = await supabase
-      .from('usuarios')
-      .select('saldo')
-      .eq('telegram_id', telegramId)
-      .single();
-
-    if (user.saldo < 50) {
-      return ctx.reply("❌ Saldo insuficiente.");
-    }
-
-    const valorSaque = user.saldo;
-    const taxaSaque = 4.90;
-    const valorLiquido = valorSaque - taxaSaque;
-
-    if (valorLiquido <= 0) {
-      return ctx.reply("❌ Valor de saldo insuficiente para cobrir as taxas.");
-    }
-
-    await ctx.reply(`⏳ Processando seu saque de R$ ${valorSaque.toFixed(2)} (Taxa: R$ ${taxaSaque.toFixed(2)})...`);
-
-    // 2. Chamar API SyncPay CashOut
-    const res = await createSyncPayCashOut(valorLiquido, pixKey, telegramId);
-
+    const { data: user } = await supabase.from('usuarios').select('saldo').eq('telegram_id', tid).single();
+    if (user.saldo < 50) return ctx.reply("Saque mínimo R$ 50,00.");
+    const res = await createSyncPayCashOut(user.saldo - 4.90, cpf, tid);
     if (res.reference_id) {
-      // 3. Deduzir saldo no Supabase
-      await supabase.rpc('decrement_balance', {
-        user_id: telegramId,
-        amount: valorSaque
-      });
-
-      await ctx.reply(`✅ Saque solicitado com sucesso!\nReferência: ${res.reference_id}\n\nO valor de R$ ${valorLiquido.toFixed(2)} será enviado para sua chave Pix CPF.`);
-    } else {
-      throw new Error('Erro na resposta da API de Saque');
+      await supabase.rpc('decrement_balance', { user_id: tid, amount: user.saldo });
+      ctx.reply("✅ Saque solicitado!");
     }
-
-  } catch (error) {
-    console.error('Erro ao processar saque:', error);
-    ctx.reply("❌ Ocorreu um erro ao processar seu saque. Verifique se seu CPF está correto e tente novamente.");
-  }
+  } catch (e) { ctx.reply("Erro no saque."); }
 });
 
 bot.action('back_to_start', (ctx) => {
   ctx.deleteMessage();
-  // Reinicia o fluxo start enviando a mensagem novamente
-  ctx.reply(`Bem-vindo! Adquira agora o nosso E-book exclusivo por apenas R$ ${PRODUCT_PRICE}.\n\nPara comprar, use o botão abaixo:`, {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "Pagar com PIX", callback_data: "buy_pix" }],
-        [{ text: "Meu Perfil / Indicar", callback_data: "profile" }]
-      ]
-    }
+  ctx.reply(`E-book por R$ ${PRODUCT_PRICE}.`, {
+    reply_markup: { inline_keyboard: [[{ text: "Pagar com PIX", callback_data: "buy_pix" }], [{ text: "Meu Perfil", callback_data: "profile" }]] }
   });
 });
 
-
-
-// --- INICIALIZAÇÃO ---
-
+// Inicialização
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', async () => {
-  log('SYSTEM', `Servidor Express escutando na porta ${PORT}`);
-  try {
-    log('SYSTEM', 'Tentando conectar ao Telegram...');
-    await bot.launch();
-    log('SYSTEM', 'Bot online e aguardando comandos!');
-  } catch (err) {
-    log('ERROR', `Falha ao iniciar Telegram: ${err.message}`);
-    // Não encerramos o processo para o container não entrar em loop de boot no Swarm
+  log('SYSTEM', `Servidor na porta ${PORT}`);
+  if (TELEGRAM_BOT_TOKEN && TELEGRAM_BOT_TOKEN !== '000:dummy') {
+    try {
+      await bot.launch();
+      log('SYSTEM', 'Bot Online!');
+    } catch (e) { log('ERROR', `Telegram Fail: ${e.message}`); }
+  } else {
+    log('ERROR', 'TELEGRAM_BOT_TOKEN ausente!');
   }
 });
 

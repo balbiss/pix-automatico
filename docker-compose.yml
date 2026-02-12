@@ -1,12 +1,13 @@
 version: '3'
 
 services:
-  main-bot:
-    image: bot-pix-v1254:latest
+  bot-final:
+    container_name: bot-indicacao-v1254
+    image: bot-indicacao:v1254
     build: .
     restart: always
     ports:
-      - "3333:3000"
+      - "3001:3000"
     logging:
       driver: "json-file"
       options:

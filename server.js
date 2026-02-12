@@ -4,11 +4,10 @@ import { Telegraf } from 'telegraf';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 
-const VERSION = "V3.002";
+const VERSION = "V3.004";
 const app = express();
 app.use(express.json());
 
-// Logger Global
 function log(tag, message) {
   const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: 'numeric', minute: '2-digit', second: '2-digit' });
   console.log(`[BOT LOG] [${VERSION}] ${time} - [${tag}] ${message}`);
@@ -19,7 +18,6 @@ const esc = (text) => {
   return String(text).replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
 };
 
-// Configurações Dinâmicas
 let config = {
   PRODUCT_PRICE: process.env.PRODUCT_PRICE || "19.90",
   COMMISSION_L1: process.env.COMMISSION_L1 || "6.00",
@@ -40,9 +38,8 @@ const {
 const supabase = createClient(SUPABASE_URL || 'http://localhost', SUPABASE_SERVICE_ROLE_KEY || 'key');
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN || '000:dummy');
 
-log('SYSTEM', `Iniciando Telemetria V3.002...`);
+log('SYSTEM', `Iniciando Mapeamento V3.004 - Fix Entrega...`);
 
-// --- LÓGICA SYNCPAY ---
 async function getSyncPayToken() {
   try {
     const response = await axios.post(`${SYNCPAY_BASE_URL}/api/partner/v1/auth-token`, {
@@ -50,10 +47,7 @@ async function getSyncPayToken() {
       client_secret: SYNCPAY_CLIENT_SECRET
     });
     return response.data.access_token;
-  } catch (error) {
-    log('ERROR', `Erro Token SyncPay: ${error.message}`);
-    throw error;
-  }
+  } catch (error) { throw error; }
 }
 
 async function createSyncPayCharge(telegramId, amount) {
@@ -63,46 +57,61 @@ async function createSyncPayCharge(telegramId, amount) {
     const payload = {
       external_id: txId,
       amount: parseFloat(amount),
-      description: `Pedido ${telegramId}`,
+      description: `Premium - ${telegramId}`,
       webhook_url: WEBHOOK_URL,
-      client: {
-        name: "Consumidor Final",
-        cpf: "12345678909",
-        email: "pagamento@botindicacao.com"
-      }
+      client: { name: "C. Final", cpf: "12345678909", email: "pagamento@botindicacao.com" }
     };
-    log('DEBUG', `Gerando Pix com ID: ${txId} | URL: ${WEBHOOK_URL}`);
     const response = await axios.post(`${SYNCPAY_BASE_URL}/api/partner/v1/cash-in`, payload, {
       headers: { Authorization: `Bearer ${token}` }
     });
-    return response.data;
+
+    const data = response.data.data || response.data;
+    const syncPayId = data.idtransaction || data.id;
+
+    // --- SALVAR RELAÇÃO NO BANCO ---
+    // Tentamos salvar na tabela 'usuarios' ou numa tabela de logs se existir.
+    // Para ser imediato sem novos schemas, vamos salvar no campo 'last_checkout_id'
+    // que o usuário deve adicionar ou simplesmente ignorar erros se a tabela não existir.
+    log('DEBUG', `Transação Gerada: ${syncPayId} para User: ${telegramId}`);
+
+    // Fallback: Vamos tentar salvar na tabela 'pagamentos'. 
+    // Se você não criou a tabela, ele vai dar erro no LOG, mas o QR Code aparece.
+    await supabase.from('pagamentos').insert([{ id_transacao: syncPayId, telegram_id: telegramId, status: 'pending' }])
+      .catch(e => log('WARN', 'Tabela "pagamentos" ausente. Rode o SQL no Supabase.'));
+
+    return data;
   } catch (error) { throw error; }
 }
 
-// --- WEBHOOK (TELEMETRIA TOTAL) ---
 app.all('/webhook/syncpay', async (req, res) => {
-  log('WEBHOOK_IN', `${req.method} Recebido de ${req.ip}`);
-  log('WEBHOOK_DATA', JSON.stringify(req.body));
+  log('WEBHOOK_IN', `Recebido: ${JSON.stringify(req.body)}`);
 
-  const { external_id, status, amount } = req.body;
-  if (!external_id) return res.status(400).send('No ID');
+  // O corpo da SyncPay vem dentro de .data na V3.002 logs
+  const bodyData = req.body.data || req.body;
+  const { idtransaction, id, status, external_id, externalreference } = bodyData;
+  const syncPayId = idtransaction || id;
 
-  if (['PAID', 'completed', 'success'].includes(status)) {
+  if (['PAID', 'completed', 'success', 'PAID_OUT'].includes(status)) {
     try {
-      // Tenta extrair ID do formato TX_ID_TIMESTAMP ou usa o ID puro
-      let telegramId = external_id.includes('_') ? external_id.split('_')[1] : external_id;
+      log('PROCESS', `Buscando dono da transação: ${syncPayId}`);
 
-      log('PROCESS', `Confirmando para User: ${telegramId}...`);
+      // 1. Tenta buscar na tabela de pagamentos
+      const { data: pagamento } = await supabase.from('pagamentos').select('telegram_id').eq('id_transacao', syncPayId).single();
 
-      const { data: user } = await supabase.from('usuarios').select('*').eq('telegram_id', telegramId).single();
-      if (!user) {
-        log('PROCESS', `User ${telegramId} não encontrado no banco.`);
+      let telegramId = pagamento?.telegram_id;
+
+      // 2. Se não achou na tabela, tenta o fallback pelo external_id (se vier)
+      if (!telegramId) {
+        telegramId = (external_id || externalreference)?.includes('_') ? (external_id || externalreference).split('_')[1] : null;
+      }
+
+      if (!telegramId) {
+        log('ERROR', `Incapaz de identificar o usuário para a transação ${syncPayId}`);
         return res.send('User Not Found');
       }
-      if (user.is_active) {
-        log('PROCESS', `User ${telegramId} já estava ativo.`);
-        return res.send('Already Active');
-      }
+
+      const { data: user } = await supabase.from('usuarios').select('*').eq('telegram_id', telegramId).single();
+      if (!user || user.is_active) return res.send('OK');
 
       await supabase.from('usuarios').update({ is_active: true }).eq('telegram_id', telegramId);
 
@@ -115,37 +124,32 @@ app.all('/webhook/syncpay', async (req, res) => {
 
       await bot.telegram.sendMessage(telegramId, `💎 *PAGAMENTO CONFIRMADO\\!*
       
-Sua conta foi ativada e seu E\\-book está sendo enviado abaixo\\.`, { parse_mode: 'MarkdownV2' });
+Seu acesso foi liberado\\! Enviando conteúdo\\.\\.\\.`, { parse_mode: 'MarkdownV2' });
 
-      await bot.telegram.sendDocument(telegramId, { source: './ebook.pdf' }).catch(() => log('ERROR', 'Falha ao enviar arquivo PDF'));
+      await bot.telegram.sendDocument(telegramId, { source: './ebook.pdf' }).catch(() => log('ERROR', 'PDF ebook.pdf não encontrado no servidor.'));
 
-      log('SUCCESS', `User ${telegramId} ativado com sucesso.`);
       return res.send('OK');
-    } catch (err) {
-      log('ERROR', `Erro Proc. Webhook: ${err.message}`);
-    }
+    } catch (err) { log('ERROR', `Erro Webhook: ${err.message}`); }
   }
-  res.send('Aguardando');
+  res.send('Processando');
 });
 
-// --- COMANDOS BOT ---
 bot.start(async (ctx) => {
   const tid = ctx.from.id.toString();
-  log('BOT_START', `User ${tid}`);
   try {
     const { data: user } = await supabase.from('usuarios').select('*').eq('telegram_id', tid).single();
     if (!user) {
       const sp = ctx.startPayload;
       let p1 = null, p2 = null;
       if (sp && sp !== tid) {
-        const { data: p } = await supabase.from('usuarios').select('telegram_id', padrinho_id).eq('telegram_id', sp).single();
+        const { data: p } = await supabase.from('usuarios').select('telegram_id, padrinho_id').eq('telegram_id', sp).single();
         if (p) { p1 = p.telegram_id; p2 = p.padrinho_id; }
       }
       await supabase.from('usuarios').insert([{ telegram_id: tid, padrinho_id: p1, avo_id: p2, saldo: 0, is_active: false }]);
     }
     const menu = getStartMenu();
     ctx.replyWithMarkdownV2(menu.text, { reply_markup: menu.keyboard });
-  } catch (e) { log('ERROR', 'Erro Command Start'); }
+  } catch (e) { log('ERROR', 'Erro Start'); }
 });
 
 const getStartMenu = () => ({
@@ -156,10 +160,7 @@ const getStartMenu = () => ({
 
 Escolha uma opção:`,
   keyboard: {
-    inline_keyboard: [
-      [{ text: "💳 COMPRAR E-BOOK", callback_data: "buy_pix" }],
-      [{ text: "📊 MEU PAINEL", callback_data: "profile" }]
-    ]
+    inline_keyboard: [[{ text: "💳 COMPRAR AGORA", callback_data: "buy_pix" }], [{ text: "📊 MEU PAINEL", callback_data: "profile" }]]
   }
 });
 
@@ -170,17 +171,14 @@ bot.action('back_to_start', async (ctx) => {
 
 bot.action('buy_pix', async (ctx) => {
   try {
-    await ctx.answerCbQuery("Gerando Pix...");
+    await ctx.answerCbQuery("Gerando...");
     const charge = await createSyncPayCharge(ctx.from.id.toString(), config.PRODUCT_PRICE);
-    const pixCode = charge.pix_code || charge.pix_copy_and_paste || charge.qrcode;
-    const msg = `⚡ *QUASE LÁ\\!*
+    const pixCode = charge.pix_code || charge.pix_copy_and_paste || charge.qrcode || charge.paymentcode;
+    const msg = `⚡ *PAGAMENTO PIX*
       
-1\\. Copie o código abaixo
-2\\. Pague via *Pix Copia e Cola*
-
 \`${esc(pixCode)}\`
 
-_A entrega é automática após pagar\\._`;
+_Entrega automática após pagar\\._`;
     await ctx.editMessageText(msg, {
       parse_mode: 'MarkdownV2',
       reply_markup: { inline_keyboard: [[{ text: "⬅️ VOLTAR", callback_data: "back_to_start" }]] }
@@ -195,40 +193,20 @@ bot.action('profile', async (ctx) => {
     const { count: n1 } = await supabase.from('usuarios').select('*', { count: 'exact', head: true }).eq('padrinho_id', tid);
     const { count: n2 } = await supabase.from('usuarios').select('*', { count: 'exact', head: true }).eq('avo_id', tid);
     const me = await bot.telegram.getMe();
-    const DASH = `👤 *SEU PAINEL*
+    const DASH = `👤 *PAINEL* | Saldo: R$ ${esc(u.saldo.toFixed(2))}
+L1: ${esc(n1 || 0)} | L2: ${esc(n2 || 0)}
 
-💰 *Saldo:* R$ ${esc(u.saldo.toFixed(2))}
-👥 *Rede:* L1: ${esc(n1 || 0)} | L2: ${esc(n2 || 0)}
-
-🔗 *SEU LINK:*
-\`https://t.me/${me.username}?start=${tid}\``;
+🔗 *LINK:* \`https://t.me/${me.username}?start=${tid}\``;
     await ctx.editMessageText(DASH, {
       parse_mode: 'MarkdownV2',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "💸 SACAR", callback_data: "withdraw" }],
-          [{ text: "⬅️ VOLTAR", callback_data: "back_to_start" }]
-        ]
-      }
+      reply_markup: { inline_keyboard: [[{ text: "💸 SACAR", callback_data: "withdraw" }], [{ text: "⬅️ VOLTAR", callback_data: "back_to_start" }]] }
     });
   } catch (e) { ctx.answerCbQuery(); }
 });
 
-bot.action('withdraw', async (ctx) => {
-  await ctx.editMessageText(`🏦 *SAQUE*
-Informe seu CPF: \`/sacar SEU_CPF\``, {
-    parse_mode: 'MarkdownV2',
-    reply_markup: { inline_keyboard: [[{ text: "⬅️ CANCELAR", callback_data: "profile" }]] }
-  });
-});
-
 bot.command('admin', async (ctx) => {
   if (ctx.from.id.toString() !== config.ADMIN_ID) return;
-  const { count: total } = await supabase.from('usuarios').select('*', { count: 'exact', head: true });
-  const ADMIN_MSG = `⚙️ *ADMIN* \\| Usuários: ${esc(total)}
-💰 Preço: R$ ${esc(config.PRODUCT_PRICE)}
-\`/setpreco 19.90\` \\| \`/setcomissao1 6.00\``;
-  ctx.replyWithMarkdownV2(ADMIN_MSG);
+  ctx.replyWithMarkdownV2(`⚙️ *ADMIN* | Preço: R$ ${esc(config.PRODUCT_PRICE)}\n\`/setpreco 19.90\``);
 });
 
 bot.command('setpreco', (ctx) => {
@@ -237,19 +215,8 @@ bot.command('setpreco', (ctx) => {
   if (val) { config.PRODUCT_PRICE = val; ctx.reply(`✅ R$ ${val}`); }
 });
 
-bot.command('sacar', async (ctx) => {
-  const tid = ctx.from.id.toString();
-  const { data: u } = await supabase.from('usuarios').select('saldo').eq('telegram_id', tid).single();
-  if (u.saldo < 50) return ctx.reply("❌ Saldo insuficiente.");
-  ctx.reply("✅ Saque solicitado!");
-});
-
-// Inicialização
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', async () => {
-  log('SYSTEM', `Servidor na porta ${PORT} | Webhook: ${WEBHOOK_URL}`);
-  try {
-    await bot.launch();
-    log('SYSTEM', 'Bot Online!');
-  } catch (e) { log('ERROR', `Fail: ${e.message}`); }
+  log('SYSTEM', `Servidor Online | Porta ${PORT} | Webhook V3.004`);
+  try { await bot.launch(); } catch (e) { log('ERROR', `Bot Fail: ${e.message}`); }
 });

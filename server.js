@@ -225,9 +225,9 @@ Informe seu CPF: \`/sacar SEU_CPF\``, {
 bot.command('admin', async (ctx) => {
   if (ctx.from.id.toString() !== config.ADMIN_ID) return;
   const { count: total } = await supabase.from('usuarios').select('*', { count: 'exact', head: true });
-  const ADMIN_MSG = `⚙️ *ADMIN* | Usuários: ${esc(total)}
+  const ADMIN_MSG = `⚙️ *ADMIN* \\| Usuários: ${esc(total)}
 💰 Preço: R$ ${esc(config.PRODUCT_PRICE)}
-\`/setpreco 19.90\` | \`/setcomissao1 6.00\``;
+\`/setpreco 19.90\` \\| \`/setcomissao1 6.00\``;
   ctx.replyWithMarkdownV2(ADMIN_MSG);
 });
 

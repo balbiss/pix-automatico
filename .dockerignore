@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.env
+.git
+.gitignore
+test*.js
+test_output.txt
+Dockerfile
+docker-compose.yml
+walkthrough.md
+implementation_plan.md
+task.md
+ebock.pdf

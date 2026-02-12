@@ -4,7 +4,7 @@ import { Telegraf } from 'telegraf';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 
-const VERSION = "V2.001";
+const VERSION = "V2.002";
 const app = express();
 app.use(express.json());
 
@@ -13,8 +13,10 @@ function log(tag, message) {
   console.log(`[BOT LOG] [${VERSION}] ${time} - [${tag}] ${message}`);
 }
 
-const escapeMarkdown = (text) => {
-  return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
+// Função de Escape para MarkdownV2 (Robusta)
+const esc = (text) => {
+  if (!text) return "";
+  return String(text).replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
 };
 
 // Configurações
@@ -26,16 +28,16 @@ const {
   SYNCPAY_CLIENT_SECRET,
   SYNCPAY_BASE_URL,
   WEBHOOK_URL,
-  PRODUCT_PRICE = 19.90,
-  COMMISSION_L1 = 6.00,
-  COMMISSION_L2 = 3.00
+  PRODUCT_PRICE = "19.90",
+  COMMISSION_L1 = "6.00",
+  COMMISSION_L2 = "3.00"
 } = process.env;
 
 // Inicialização Global
 const supabase = createClient(SUPABASE_URL || 'http://localhost', SUPABASE_SERVICE_ROLE_KEY || 'key');
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN || '000:dummy');
 
-log('SYSTEM', `Upgrade para Versão Profissional ${VERSION}...`);
+log('SYSTEM', `Ajustando Escaping para ${VERSION}...`);
 
 // --- LÓGICA SYNCPAY ---
 async function getSyncPayToken() {
@@ -102,7 +104,6 @@ app.post('/webhook/syncpay', async (req, res) => {
   const { external_id, status } = req.body;
   if (['PAID', 'completed', 'success'].includes(status)) {
     try {
-      // O external_id agora é TX_ID_TIMESTAMP, precisamos pegar o ID original
       const telegramId = external_id.split('_')[1];
       const { data: user } = await supabase.from('usuarios').select('*').eq('telegram_id', telegramId).single();
 
@@ -117,7 +118,9 @@ app.post('/webhook/syncpay', async (req, res) => {
         }
       }
 
-      const msg = "💎 *PAGAMENTO CONFIRMADO\\!*\n\nParabéns\\! Sua compra foi processada com sucesso\\. Aproveite o conteúdo exclusivo do nosso E\\-book\\.";
+      const msg = `💎 *PAGAMENTO CONFIRMADO\\!*
+
+Parabéns\\! Sua compra foi processada com sucesso\\. Aproveite o conteúdo exclusivo do nosso E\\-book\\.`;
       await bot.telegram.sendMessage(telegramId, msg, { parse_mode: 'MarkdownV2' });
       await bot.telegram.sendDocument(telegramId, { source: './ebook.pdf' }).catch(() => log('ERROR', 'Falha ao enviar PDF'));
 
@@ -150,7 +153,7 @@ bot.start(async (ctx) => {
 
 Você acaba de dar o primeiro passo para sua liberdade financeira\\. Explore nosso conteúdo exclusivo e comece a lucrar agora mesmo\\.
 
-💰 *Oferta Especial:* E\\-book Premium por apenas *R$ ${PRODUCT_PRICE}*
+💰 *Oferta Especial:* E\\-book Premium por apenas *R$ ${esc(PRODUCT_PRICE)}*
 💎 *Sistema de Afiliados:* Ganhe comissões em até 2 níveis\\!
 
 Escolha uma opção abaixo para começar:`;
@@ -181,13 +184,13 @@ Siga os passos para liberar seu acesso:
 3\\. Vá em *Pix Copia e Cola*
 4\\. Cole o código e finalize o pagamento
 
-\`${pixCode}\`
+\`${esc(pixCode)}\`
 
 _A liberação do E\\-book ocorre automaticamente após a confirmação\\._`;
 
       ctx.replyWithMarkdownV2(msg);
     } else {
-      ctx.reply("❌ Erro temporário no sistema de pagamentos. Tente novamente em alguns minutos.");
+      ctx.reply("❌ Erro temporário no sistema de pagamentos.");
     }
   } catch (e) { ctx.reply("❌ Não foi possível gerar o Pix no momento."); }
 });
@@ -203,14 +206,14 @@ bot.action('profile', async (ctx) => {
 
     const DASHBOARD = `👤 *SEU PAINEL DE CONTROLE*
 
-💰 *Saldo Disponível:* R$ ${user.saldo.toFixed(2).replace('.', '\\.')}
-👥 *Rede Nível 1:* ${n1 || 0} consultores
-👥 *Rede Nível 2:* ${n2 || 0} consultores
+💰 *Saldo Disponível:* R$ ${esc(user.saldo.toFixed(2))}
+👥 *Rede Nível 1:* ${esc(n1 || 0)} consultores
+👥 *Rede Nível 2:* ${esc(n2 || 0)} consultores
 
 🔗 *SEU LINK DE INDICAÇÃO:*
 \`https://t.me/${me.username}?start=${tid}\`
 
-_Indique amigos e ganhe R$ ${COMMISSION_L1.toFixed(2).replace('.', '\\.')} por cada venda direta\\!_`;
+_Indique amigos e ganhe R$ ${esc(parseFloat(COMMISSION_L1).toFixed(2))} por cada venda direta\\!_`;
 
     ctx.replyWithMarkdownV2(DASHBOARD, {
       reply_markup: {
@@ -224,7 +227,7 @@ _Indique amigos e ganhe R$ ${COMMISSION_L1.toFixed(2).replace('.', '\\.')} por c
 });
 
 bot.action('withdraw', (ctx) => {
-  ctx.replyWithMarkdownV2("🏦 *SOLICITAÇÃO DE SAQUE*\n\nPara retirar seu saldo, informe seu CPF utilizando o comando:\n\n\` /sacar 000.000.000-00 \`\n\n_Saque mínimo: R$ 50,00_");
+  ctx.replyWithMarkdownV2("🏦 *SOLICITAÇÃO DE SAQUE*\n\nPara retirar seu saldo, informe seu CPF utilizando o comando:\n\n\` /sacar 000.000.000-00 \`\\n\\n_Saque mínimo: R$ 50,00_");
 });
 
 bot.command('sacar', async (ctx) => {
@@ -238,19 +241,19 @@ bot.command('sacar', async (ctx) => {
 
   try {
     const { data: user } = await supabase.from('usuarios').select('saldo').eq('telegram_id', tid).single();
-    if (user.saldo < 50) return ctx.reply("❌ Saldo insuficiente para saque (Mínimo R$ 50,00).");
+    if (user.saldo < 50) return ctx.reply("❌ Saldo insuficiente\\.");
 
     const res = await createSyncPayCashOut(user.saldo - 4.90, cpf, tid);
     if (res.reference_id) {
       await supabase.rpc('decrement_balance', { user_id: tid, amount: user.saldo });
       ctx.replyWithMarkdownV2("✅ *SAQUE SOLICITADO\\!* Seu saldo será processado em breve\\.");
     }
-  } catch (e) { ctx.reply("❌ Erro ao processar saque. Verifique se o CPF é o mesmo do cadastro."); }
+  } catch (e) { ctx.reply("❌ Erro ao processar saque\\."); }
 });
 
 bot.action('back_to_start', (ctx) => {
   ctx.deleteMessage();
-  ctx.replyWithMarkdownV2(`💎 *E\\-BOOK PREMIUM* \\- R$ ${PRODUCT_PRICE.replace(/\./g, '\\.')}\n\nDeseja realizar sua compra agora?`, {
+  ctx.replyWithMarkdownV2(`💎 *E\\-BOOK PREMIUM* \\- R$ ${esc(PRODUCT_PRICE)}\n\nDeseja realizar sua compra agora?`, {
     reply_markup: {
       inline_keyboard: [
         [{ text: "💳 PAGAR AGORA", callback_data: "buy_pix" }],

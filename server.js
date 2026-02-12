@@ -8,6 +8,14 @@ const app = express();
 app.use(express.json());
 
 // Configurações
+const VERSION = "V1.254";
+
+function log(tag, message) {
+  const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  console.log(`[BOT LOG] [${VERSION}] ${time} - [${tag}] ${message}`);
+}
+
+// Configurações com Validação Amigável (Não mata o processo)
 const {
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
@@ -16,30 +24,39 @@ const {
   SYNCPAY_CLIENT_SECRET,
   SYNCPAY_BASE_URL,
   WEBHOOK_URL,
-  PRODUCT_PRICE,
-  COMMISSION_L1,
-  COMMISSION_L2
+  PRODUCT_PRICE = 19.90,
+  COMMISSION_L1 = 6.00,
+  COMMISSION_L2 = 3.00
 } = process.env;
 
-const VERSION = "v1.191";
+const requiredEnv = {
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
+  TELEGRAM_BOT_TOKEN,
+  SYNCPAY_CLIENT_ID,
+  SYNCPAY_CLIENT_SECRET
+};
 
-function log(tag, message) {
-  const time = new Date().toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit', second: '2-digit' });
-  console.log(`[BOT LOG] [${VERSION}] ${time} - [${tag}] ${message}`);
-}
-
-// Validação de Variáveis de Ambiente
-const requiredEnv = [
-  'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'TELEGRAM_BOT_TOKEN',
-  'SYNCPAY_CLIENT_ID', 'SYNCPAY_CLIENT_SECRET', 'SYNCPAY_BASE_URL'
-];
-
-requiredEnv.forEach(env => {
-  if (!process.env[env]) {
-    log('ERROR', `Variável de ambiente ${env} não definida!`);
-    process.exit(1);
+Object.entries(requiredEnv).forEach(([key, value]) => {
+  if (!value) {
+    log('ERROR', `Atenção: Variável ${key} não configurada nas Environment Variables!`);
   }
 });
+
+let supabase, bot;
+
+try {
+  if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+    supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    log('DATABASE', 'Conexão configurada');
+  }
+  if (TELEGRAM_BOT_TOKEN) {
+    bot = new Telegraf(TELEGRAM_BOT_TOKEN);
+    log('SYSTEM', 'Telegram configurado');
+  }
+} catch (err) {
+  log('ERROR', `Falha na inicialização: ${err.message}`);
+}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const bot = new Telegraf(TELEGRAM_BOT_TOKEN);

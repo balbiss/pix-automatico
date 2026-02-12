@@ -1,16 +1,14 @@
-version: '3.3'
+version: '3'
 
 services:
-  bot-main:
-    image: bot-mlm:v1.192
+  main-bot:
+    image: bot-pix-v1254:latest
     build: .
     restart: always
     ports:
-      - target: 3000
-        published: 3010
-        mode: host
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: any
-        delay: 10s
+      - "3333:3000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
